@@ -1125,7 +1125,8 @@ def has_minimum_zones(rings):
             return False
         builder = _load_builder(ring).to_dict()
         replicas = builder['replicas']
-        zones = [dev['zone'] for dev in builder['devs']]
+        zones = [dev['zone'] for dev in builder['devs']
+                 if dev and 'zone' in dev]
         num_zones = len(set(zones))
         if num_zones < replicas:
             log("Not enough zones (%d) defined to satisfy minimum replicas "
