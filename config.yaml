@@ -34,7 +34,7 @@ options:
     type: int
     description: Partition power.
   replicas:
-    default: 3
+    default: 3.0
     type: float
     description: Minimum replicas.
   min-hours:
