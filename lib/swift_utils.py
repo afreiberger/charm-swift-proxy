@@ -574,6 +574,21 @@ def set_min_part_hours(path, value):
         raise SwiftProxyCharmException(msg)
 
 
+def get_replicas(ring):
+    builder = _load_builder(ring)
+    return builder.replicas
+
+
+def set_replicas(path, value):
+    cmd = ['swift-ring-builder', path, 'set_replicas', str(value)]
+    p = subprocess.Popen(cmd)
+    p.communicate()
+    rc = p.returncode
+    if rc != 0:
+        msg = ("Failed to set_replicas={} on {}".format(value, path))
+        raise SwiftProxyCharmException(msg)
+
+
 def get_zone(assignment_policy):
     """Determine appropriate zone based on configured assignment policy.
 

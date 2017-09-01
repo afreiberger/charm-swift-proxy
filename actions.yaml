@@ -31,3 +31,26 @@ openstack-upgrade:
   description: |
     Perform openstack upgrades. Config option action-managed-upgrade must be
     set to True.
+update-replicas:
+  description: |
+    Update object, account, and container server replica count
+    Useful when needing to slowly weight up or down between replica settings
+    Implements 'Make ring's replica count adjustable' blueprint in charm
+    https://blueprints.launchpad.net/swift/+spec/adjustable-replica-counts
+    This action will trigger a rebalance and synchronization of the builder
+    and ring files
+  params:
+    replicas:
+      type: number
+      description: |
+        Number of replicas (floating point replicas can be used to gradually
+        reweight replica changes to reduce replication i/o overhead)
+        Example - 3.0
+    ring:
+      type: string
+      description: |
+        One of "account", "container", or "object".  "all" can be specified
+        to make the change to all 3 builder/ring settings
+  required:
+    - replicas
+    - ring

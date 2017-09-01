@@ -22,12 +22,28 @@ import yaml
 sys.path.append('hooks/')
 
 from charmhelpers.core.host import service_pause, service_resume
-from charmhelpers.core.hookenv import action_fail
+from charmhelpers.core.hookenv import (
+    action_fail,
+    action_get,
+    action_set,
+    WARNING
+)
 from charmhelpers.contrib.openstack.utils import (
     set_unit_paused,
     clear_unit_paused,
 )
-from lib.swift_utils import assess_status, services
+from charmhelpers.contrib.hahelpers.cluster import is_elected_leader
+from lib.swift_utils import (
+    assess_status,
+    services,
+    get_replicas,
+    set_replicas,
+    balance_rings,
+    SWIFT_RINGS,
+    SWIFT_HA_RES,
+    sync_builders_and_rings_if_changed,
+    SwiftProxyCharmException
+)
 from swift_hooks import CONFIGS
 
 
@@ -73,9 +89,86 @@ def resume(args):
     assess_status(CONFIGS, args.services)
 
 
+def _update_replicas(ring, replicas):
+    balance_required = False
+    path = SWIFT_RINGS[ring]
+    if not os.path.exists(path):
+        action_fail("Swift ring file {}"
+                    "missing from unit.".format(ring))
+
+    try:
+        current_replicas = float(get_replicas(path))
+    except:
+        action_fail("Current replicas not able to be retrieved"
+                    "from {}".format(path))
+        return
+
+    try:
+        requested_replicas = float(replicas)
+    except:
+        action_fail("Requested replicas is not a floating point"
+                    "number: {}".format(replicas))
+
+    if current_replicas == requested_replicas:
+        action_set({ring: "Replicas already set to "
+                          "{}".format(replicas)})
+    else:
+        try:
+            set_replicas(path, replicas)
+            action_set({ring: "Replicas updated to "
+                              "{}".format(replicas)})
+        except SwiftProxyCharmException as exc:
+            action_fail("Failed replica update on {}\n"
+                        "{}".format(ring, str(exc)),
+                        level=WARNING)
+        else:
+            balance_required = True
+
+    return balance_required
+
+
+@sync_builders_and_rings_if_changed
+def update_replicas(args):
+    """Sets number of replicas in the builder file(s) as specified
+    and triggers rebalance and sync of builder/ring files
+    """
+    if not is_elected_leader(SWIFT_HA_RES):
+        action_fail("This Unit is not the leader. "
+                    "Must be run on the leader.\n"
+                    "Suggest using <juju run 'is-leader'>"
+                    "to determine proper unit")
+        return
+
+    replicas = action_get("replicas")
+    ring = (action_get("ring")).lower()
+
+    if replicas < 1:
+        action_fail("Failing for data safety."
+                    " Must specify minimum of 1 replica!")
+        return
+
+    if ring == 'all':
+        if all([os.path.exists(p) for p in SWIFT_RINGS.itervalues()]):
+            for curr_ring in SWIFT_RINGS.iterkeys():
+                balance_required = _update_replicas(curr_ring, replicas)
+        else:
+            action_fail("One or more swift ring files missing from unit.")
+    else:
+        if ring in SWIFT_RINGS:
+            balance_required = _update_replicas(ring, replicas)
+        else:
+            action_fail("Ring {} unknown to swift-proxy".format(ring))
+
+    if balance_required:
+        balance_rings()
+
+    return
+
+
 # A dictionary of all the defined actions to callables (which take
 # parsed arguments).
-ACTIONS = {"pause": pause, "resume": resume}
+ACTIONS = {"pause": pause, "resume": resume,
+           "update-replicas": update_replicas}
 
 
 def main(argv):
