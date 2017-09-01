@@ -22,12 +22,28 @@ import yaml
 sys.path.append('hooks/')
 
 from charmhelpers.core.host import service_pause, service_resume
-from charmhelpers.core.hookenv import action_fail
+from charmhelpers.core.hookenv import (
+    action_fail,
+    action_get,
+    action_set,
+    WARNING
+)
 from charmhelpers.contrib.openstack.utils import (
     set_unit_paused,
     clear_unit_paused,
 )
-from lib.swift_utils import assess_status, services
+from charmhelpers.contrib.hahelpers.cluster import is_elected_leader
+from lib.swift_utils import (
+    assess_status,
+    services,
+    get_replicas,
+    set_replicas,
+    balance_rings,
+    SWIFT_RINGS,
+    SWIFT_HA_RES,
+    sync_builders_and_rings_if_changed,
+    SwiftProxyCharmException
+)
 from swift_hooks import CONFIGS
 
 
@@ -73,9 +89,74 @@ def resume(args):
     assess_status(CONFIGS, args.services)
 
 
+def _update_replicas(server, replicas):
+    balance_required = False
+    path = SWIFT_RINGS[server]
+    if not os.path.exists(path):
+        action_fail("Server {} swift ring file "
+                    "missing from unit.".format(server))
+
+    current_replicas = get_replicas(path)
+    if float(current_replicas) != float(replicas):
+        try:
+            set_replicas(path, replicas)
+            action_set({server: "Replicas updated to "
+                                "{}".format(replicas)})
+        except SwiftProxyCharmException as exc:
+            action_fail("Failed replica update on {}\n"
+                        "{}".format(server, str(exc)),
+                        level=WARNING)
+        else:
+            balance_required = True
+    else:
+        action_set({server: "Replicas already set to "
+                            "{}".format(replicas)})
+
+    return balance_required
+
+
+@sync_builders_and_rings_if_changed
+def update_replicas(args):
+    """Sets number of replicas in the builder file(s) as specified
+    and triggers rebalance and sync of builder/ring files
+    """
+    if not is_elected_leader(SWIFT_HA_RES):
+        action_fail("This Unit is not the leader. "
+                    "Must be run on the leader.\n"
+                    "Suggest using <juju run 'is-leader'>"
+                    "to determine proper unit")
+        return
+
+    replicas = action_get("replicas")
+    server = (action_get("server")).lower()
+
+    if replicas < 1:
+        action_fail("Failing for data safety."
+                    " Must specify minimum of 1 replica!")
+        return
+
+    if server == 'all':
+        if all([os.path.exists(p) for p in SWIFT_RINGS.itervalues()]):
+            for s in SWIFT_RINGS.iterkeys():
+                balance_required = _update_replicas(s, replicas)
+        else:
+            action_fail("One or more swift ring files missing from unit.")
+    else:
+        if server in SWIFT_RINGS:
+            balance_required = _update_replicas(server, replicas)
+        else:
+            action_fail("Server {} unknown to swift-proxy".format(server))
+
+    if balance_required:
+        balance_rings()
+
+    return
+
+
 # A dictionary of all the defined actions to callables (which take
 # parsed arguments).
-ACTIONS = {"pause": pause, "resume": resume}
+ACTIONS = {"pause": pause, "resume": resume,
+           "update-replicas": update_replicas}
 
 
 def main(argv):
