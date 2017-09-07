@@ -89,28 +89,40 @@ def resume(args):
     assess_status(CONFIGS, args.services)
 
 
-def _update_replicas(server, replicas):
+def _update_replicas(ring, replicas):
     balance_required = False
-    path = SWIFT_RINGS[server]
+    path = SWIFT_RINGS[ring]
     if not os.path.exists(path):
-        action_fail("Server {} swift ring file "
-                    "missing from unit.".format(server))
+        action_fail("Swift ring file {}"
+                    "missing from unit.".format(ring))
 
-    current_replicas = get_replicas(path)
-    if float(current_replicas) != float(replicas):
+    try:
+        current_replicas = float(get_replicas(path))
+    except:
+        action_fail("Current replicas not able to be retrieved"
+                    "from {}".format(path))
+        return
+
+    try:
+        requested_replicas = float(replicas)
+    except:
+        action_fail("Requested replicas is not a floating point"
+                    "number: {}".format(replicas))
+
+    if current_replicas == requested_replicas:
+        action_set({ring: "Replicas already set to "
+                          "{}".format(replicas)})
+    else:
         try:
             set_replicas(path, replicas)
-            action_set({server: "Replicas updated to "
-                                "{}".format(replicas)})
+            action_set({ring: "Replicas updated to "
+                              "{}".format(replicas)})
         except SwiftProxyCharmException as exc:
             action_fail("Failed replica update on {}\n"
-                        "{}".format(server, str(exc)),
+                        "{}".format(ring, str(exc)),
                         level=WARNING)
         else:
             balance_required = True
-    else:
-        action_set({server: "Replicas already set to "
-                            "{}".format(replicas)})
 
     return balance_required
 
@@ -128,24 +140,24 @@ def update_replicas(args):
         return
 
     replicas = action_get("replicas")
-    server = (action_get("server")).lower()
+    ring = (action_get("ring")).lower()
 
     if replicas < 1:
         action_fail("Failing for data safety."
                     " Must specify minimum of 1 replica!")
         return
 
-    if server == 'all':
+    if ring == 'all':
         if all([os.path.exists(p) for p in SWIFT_RINGS.itervalues()]):
-            for s in SWIFT_RINGS.iterkeys():
-                balance_required = _update_replicas(s, replicas)
+            for curr_ring in SWIFT_RINGS.iterkeys():
+                balance_required = _update_replicas(curr_ring, replicas)
         else:
             action_fail("One or more swift ring files missing from unit.")
     else:
-        if server in SWIFT_RINGS:
-            balance_required = _update_replicas(server, replicas)
+        if ring in SWIFT_RINGS:
+            balance_required = _update_replicas(ring, replicas)
         else:
-            action_fail("Server {} unknown to swift-proxy".format(server))
+            action_fail("Ring {} unknown to swift-proxy".format(ring))
 
     if balance_required:
         balance_rings()

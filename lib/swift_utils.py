@@ -585,7 +585,7 @@ def set_replicas(path, value):
     p.communicate()
     rc = p.returncode
     if rc != 0:
-        msg = ("Failed to set_replicas=%s on %s" % (value, path))
+        msg = ("Failed to set_replicas={} on {}".format(value, path))
         raise SwiftProxyCharmException(msg)
 
 
