@@ -33,3 +33,29 @@ openstack-upgrade:
     set to True.
 diskusage:
   description: Run swift-recon -d on the specified unit.  Returns values in GB.
+manage-rings:
+  description: |
+    Parse YAML of actions to perform on rings, then trigger a ring
+    rebalance and sync across swift environment if successful
+  required:
+    ring:
+      type: string
+      description: |
+        The ring builder file(s) to modify.
+        One of 'object', 'account', 'container', or 'all'
+    change-spec:
+      type: string
+      description: |-
+        YAML of actions and disks to take those actions on.  Format as below.
+        remove:
+          - descriptor: 'd99'
+          - descriptor: 'd100'
+          - descriptor: '<any search device supported by swift-ring-builder>'
+        set_weight:
+          - descriptor: 'd101'
+            weight: 1.0
+          - descriptor: 'd102'
+            weight: 0.5
+          - descriptor: '<any search device>'
+            weight: 0.0
+
